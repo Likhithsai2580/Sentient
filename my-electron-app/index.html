@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Speech Recognition</title>
+</head>
+
+<body>
+    <h2>Speech-to-Text Transcription:</h2>
+    <button id="startButton">Start Recording</button>
+    <p id="transcription">Transcription will appear here...</p>
+
+    <h2>Text-to-Speech:</h2>
+    <input type="text" id="ttsInput" placeholder="Enter text to speak">
+    <label for="voiceSelect">Choose a Voice:</label>
+    <select id="voiceSelect"></select>
+
+    <button id="speakButton">Speak</button>
+    <button id="pauseButton">Pause</button>
+    <button id="resumeButton">Resume</button>
+
+    <script src="renderer.js"></script>
+</body>
+</html>
