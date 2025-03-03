@@ -1,0 +1,17 @@
+beautifulsoup4
+chromadb
+docx
+easyocr
+html2text
+numpy
+ollama
+opencv_python
+opencv_python_headless
+pillow
+pydub
+PyPDF2
+pytesseract
+requests
+scikit_learn
+yt_dlp
+textract
