@@ -26,8 +26,8 @@ class VoiceAssistant:
         self.FORMAT = pyaudio.paFloat32
         self.CHANNELS = 1
         self.RATE = 16000
-        self.SILENCE_THRESHOLD = 0.01  # Adjust based on your environment
-        self.SILENCE_DURATION = 2.0  # Reduced silence duration for better responsiveness
+        self.SILENCE_THRESHOLD = 0.005  # Adjust based on your environment
+        self.SILENCE_DURATION = 2.5  # Reduced silence duration for better responsiveness
         self.MAX_RECORDING_SECONDS = 30  # Maximum recording time
         
         # State management
@@ -66,9 +66,9 @@ class VoiceAssistant:
         """Initialize SpeechRecognition"""
         self.recognizer = sr.Recognizer()
         # Adjust parameters for better recognition
-        self.recognizer.energy_threshold = 300
+        self.recognizer.energy_threshold = 150
         self.recognizer.dynamic_energy_threshold = True
-        self.recognizer.pause_threshold = 0.8
+        self.recognizer.pause_threshold = 1.0
         
     def init_audio_playback(self):
         """Initialize pygame mixer for audio playback"""

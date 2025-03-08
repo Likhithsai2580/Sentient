@@ -9,3 +9,9 @@ pyttsx3
 noisereduce 
 gtts 
 pygame
+SpeechRecognition 
+speechbrain 
+torch 
+torchaudio 
+sounddevice 
+soundfile
