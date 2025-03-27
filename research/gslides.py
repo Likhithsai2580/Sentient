@@ -9,15 +9,16 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
-from googleapiclient.http import MediaFileUpload
 
 # Load environment variables
 load_dotenv()
 
 # Define OAuth scopes
-SCOPES = ["https://www.googleapis.com/auth/presentations", 
-          "https://www.googleapis.com/auth/drive.file",
-          "https://www.googleapis.com/auth/drive"]
+SCOPES = [
+    "https://www.googleapis.com/auth/presentations",
+    "https://www.googleapis.com/auth/drive.file",
+    "https://www.googleapis.com/auth/drive"
+]
 
 def authenticate_google():
     """Authenticate using OAuth and return API services"""
@@ -50,29 +51,8 @@ def authenticate_google():
     
     return slides_service, drive_service
 
-def search_unsplash_image(query):
-    """Search for an image using Unsplash API"""
-    unsplash_access_key = os.getenv("UNSPLASH_ACCESS_KEY")
-    
-    try:
-        url = "https://api.unsplash.com/search/photos"
-        headers = {"Authorization": f"Client-ID {unsplash_access_key}"}
-        params = {"query": query, "per_page": 1, "orientation": "landscape"}
-        
-        response = requests.get(url, headers=headers, params=params)
-        data = response.json()
-        
-        if data.get("results") and len(data["results"]) > 0:
-            return data["results"][0]["urls"]["regular"]
-        else:
-            print(f"No image found for query: {query}")
-            return None
-    except Exception as e:
-        print(f"Error searching for image: {e}")
-        return None
-
 def search_and_download_unsplash_image(query):
-    """Search for an image on Unsplash and download it"""
+    """Search for an image on Unsplash and return its content as bytes"""
     try:
         url = f'https://api.unsplash.com/search/photos?query={query}'
         headers = {'Authorization': f'Client-ID {os.getenv("UNSPLASH_ACCESS_KEY")}'}
@@ -82,14 +62,9 @@ def search_and_download_unsplash_image(query):
             if search_results['results']:
                 first_photo = search_results['results'][0]
                 image_url = first_photo['urls']['regular']
-                photo_id = first_photo['id']
                 image_response = requests.get(image_url)
                 if image_response.status_code == 200:
-                    os.makedirs('unsplash_downloads', exist_ok=True)
-                    image_path = os.path.join('unsplash_downloads', f'{photo_id}.jpg')
-                    with open(image_path, 'wb') as file:
-                        file.write(image_response.content)
-                    return image_path
+                    return image_response.content  # Return bytes instead of saving
                 else:
                     print(f"Error downloading image: {image_response.status_code}")
             else:
@@ -100,55 +75,38 @@ def search_and_download_unsplash_image(query):
         print(f"Error in image search and download: {e}")
     return None
 
-def upload_imageURL_to_slide(slides_service, drive_service, presentation_id, slide_id, image_url):
-    """Upload an image to a specific slide"""
+def generate_chart_image(chart_type, categories, data):
+    """Generate a chart image using Matplotlib and return it as bytes"""
     try:
-        response = requests.get(image_url)
-        if response.status_code != 200:
-            print(f"Failed to download image from {image_url}")
-            return False
-        file = io.BytesIO(response.content)
-        file_metadata = {'name': f'slide_image_{int(time.time())}.jpg'}
-        media = MediaIoBaseUpload(file, mimetype='image/jpeg')
-        uploaded_file = drive_service.files().create(
-            body=file_metadata,
-            media_body=media,
-            fields='id'
-        ).execute()
-        file_id = uploaded_file.get('id')
-        create_image_request = {
-            "createImage": {
-                "url": f"https://drive.google.com/uc?id={file_id}",
-                "elementProperties": {
-                    "pageObjectId": slide_id,
-                    "size": {
-                        "width": {"magnitude": 450, "unit": "PT"},
-                        "height": {"magnitude": 300, "unit": "PT"}
-                    },
-                    "transform": {
-                        "scaleX": 1,
-                        "scaleY": 1,
-                        "translateX": 50,
-                        "translateY": 150,
-                        "unit": "PT"
-                    }
-                }
-            }
-        }
-        slides_service.presentations().batchUpdate(
-            presentationId=presentation_id,
-            body={"requests": [create_image_request]}
-        ).execute()
-        return True
+        import matplotlib.pyplot as plt
+        buf = io.BytesIO()
+        plt.figure(figsize=(6, 4))
+        if chart_type == "bar":
+            plt.bar(categories, data)
+        elif chart_type == "pie":
+            plt.pie(data, labels=categories, autopct='%1.1f%%')
+        elif chart_type == "line":
+            plt.plot(categories, data)
+        else:
+            print(f"Unsupported chart type: {chart_type}")
+            return None
+        plt.title("Chart")
+        plt.savefig(buf, format='png')
+        plt.close()
+        buf.seek(0)
+        return buf.getvalue()  # Return bytes
+    except ImportError:
+        print("Matplotlib is not installed. Please install it with 'pip install matplotlib'.")
+        return None
     except Exception as e:
-        print(f"Error adding image to slide: {e}")
-        return False
+        print(f"Error generating chart: {e}")
+        return None
 
-def upload_imagePATH_to_slide(slides_service, drive_service, presentation_id, slide_id, image_path):
-    """Upload a local image to Google Drive and add it to a slide"""
+def upload_image_bytes_to_slide(slides_service, drive_service, presentation_id, slide_id, image_bytes, image_name, translateX, translateY, width, height):
+    """Upload image bytes to Google Drive and add it to a slide"""
     try:
-        file_metadata = {'name': os.path.basename(image_path)}
-        media = MediaFileUpload(image_path, mimetype='image/jpeg')
+        file_metadata = {'name': image_name}
+        media = MediaIoBaseUpload(io.BytesIO(image_bytes), mimetype='image/png')
         uploaded_file = drive_service.files().create(
             body=file_metadata,
             media_body=media,
@@ -164,14 +122,14 @@ def upload_imagePATH_to_slide(slides_service, drive_service, presentation_id, sl
                 "elementProperties": {
                     "pageObjectId": slide_id,
                     "size": {
-                        "width": {"magnitude": 300, "unit": "PT"},
-                        "height": {"magnitude": 200, "unit": "PT"}
+                        "width": {"magnitude": width, "unit": "PT"},
+                        "height": {"magnitude": height, "unit": "PT"}
                     },
                     "transform": {
                         "scaleX": 1,
                         "scaleY": 1,
-                        "translateX": 350,
-                        "translateY": 200,
+                        "translateX": translateX,
+                        "translateY": translateY,
                         "unit": "PT"
                     }
                 }
@@ -181,70 +139,32 @@ def upload_imagePATH_to_slide(slides_service, drive_service, presentation_id, sl
             presentationId=presentation_id,
             body={"requests": [create_image_request]}
         ).execute()
-        print(f"Successfully added image from {image_path} to slide {slide_id}")
+        print(f"Successfully added image {image_name} to slide {slide_id}")
         return True
     except Exception as e:
         print(f"Error adding image to slide: {e}")
         return False
 
-def generate_chart_image(chart_type, categories, data, output_path):
-    """Generate a chart image using Matplotlib and save it to output_path."""
-    try:
-        import matplotlib.pyplot as plt
-        plt.figure(figsize=(6, 4))
-        if chart_type == "bar":
-            plt.bar(categories, data)
-        elif chart_type == "pie":
-            plt.pie(data, labels=categories, autopct='%1.1f%%')
-        elif chart_type == "line":
-            plt.plot(categories, data)
-        else:
-            print(f"Unsupported chart type: {chart_type}")
-            return False
-        plt.title("Chart")
-        plt.savefig(output_path)
-        plt.close()
-        return True
-    except ImportError:
-        print("Matplotlib is not installed. Please install it with 'pip install matplotlib'.")
-        return False
-    except Exception as e:
-        print(f"Error generating chart: {e}")
-        return False
-
-def add_slide(slides_service, drive_service, presentation_id, slide_data):
-    """
-    Add a slide to the presentation with title, content, optional image, chart, and table
-    
-    Args:
-        slides_service: Google Slides API service
-        drive_service: Google Drive API service
-        presentation_id: ID of the presentation
-        slide_data: Dictionary containing slide information
-    """
+def add_slide(slides_service, drive_service, presentation_id, slide_data, layout="TITLE_AND_BODY"):
+    """Add a slide to the presentation with specified layout and content"""
     # Create slide request
     create_slide_request = {
         "createSlide": {
-            "slideLayoutReference": {"predefinedLayout": "TITLE_AND_BODY"}
+            "slideLayoutReference": {"predefinedLayout": layout}
         }
     }
     
-    # Execute slide creation
     response = slides_service.presentations().batchUpdate(
-        presentationId=presentation_id, 
+        presentationId=presentation_id,
         body={"requests": [create_slide_request]}
     ).execute()
     
-    # Get the new slide's ID
     slide_id = response['replies'][0]['createSlide']['objectId']
     
-    # Get the presentation to find placeholders
-    presentation = slides_service.presentations().get(
-        presentationId=presentation_id
-    ).execute()
-    
-    # Find title and body placeholder IDs
+    # Get placeholders
+    presentation = slides_service.presentations().get(presentationId=presentation_id).execute()
     title_id = None
+    subtitle_id = None
     body_id = None
     
     for slide in presentation['slides']:
@@ -252,144 +172,133 @@ def add_slide(slides_service, drive_service, presentation_id, slide_data):
             for element in slide.get('pageElements', []):
                 shape = element.get('shape', {})
                 placeholder = shape.get('placeholder', {})
-                if placeholder.get('type') == 'TITLE':
-                    title_id = element['objectId']
-                elif placeholder.get('type') == 'BODY':
-                    body_id = element['objectId']
+                if layout == "TITLE":
+                    if placeholder.get('type') == 'CENTER_TITLE':
+                        title_id = element['objectId']
+                    elif placeholder.get('type') == 'SUBTITLE':
+                        subtitle_id = element['objectId']
+                elif layout == "TITLE_AND_BODY":
+                    if placeholder.get('type') == 'TITLE':
+                        title_id = element['objectId']
+                    elif placeholder.get('type') == 'BODY':
+                        body_id = element['objectId']
     
-    # Prepare requests for text
+    # Prepare text requests
     requests = []
     
-    # Add title
-    if title_id:
-        requests.append({
-            "insertText": {
-                "objectId": title_id,
-                "insertionIndex": 0,
-                "text": slide_data.get('title', 'Untitled Slide')
-            }
-        })
+    if layout == "TITLE":
+        if title_id and 'title' in slide_data:
+            requests.append({
+                "insertText": {
+                    "objectId": title_id,
+                    "insertionIndex": 0,
+                    "text": slide_data['title']
+                }
+            })
+        if subtitle_id and 'subtitle' in slide_data:
+            requests.append({
+                "insertText": {
+                    "objectId": subtitle_id,
+                    "insertionIndex": 0,
+                    "text": slide_data['subtitle']
+                }
+            })
+    elif layout == "TITLE_AND_BODY":
+        if title_id:
+            requests.append({
+                "insertText": {
+                    "objectId": title_id,
+                    "insertionIndex": 0,
+                    "text": slide_data.get('title', 'Untitled Slide')
+                }
+            })
+        if body_id:
+            content_text = "\n".join([f"• {item}" for item in slide_data.get('content', [])])
+            requests.append({
+                "insertText": {
+                    "objectId": body_id,
+                    "insertionIndex": 0,
+                    "text": content_text
+                }
+            })
     
-    # Add content
-    if body_id:
-        # Create bulleted content
-        content_text = "\n".join([f"• {item}" for item in slide_data.get('content', [])])
-        requests.append({
-            "insertText": {
-                "objectId": body_id,
-                "insertionIndex": 0,
-                "text": content_text
-            }
-        })
-    
-    # Execute text requests
     if requests:
         slides_service.presentations().batchUpdate(
-            presentationId=presentation_id, 
+            presentationId=presentation_id,
             body={"requests": requests}
         ).execute()
     
-    # Add image if description is provided
-    if slide_data.get('image_description'):
-        image_path = search_and_download_unsplash_image(slide_data['image_description'])
-        if image_path:
-            upload_imagePATH_to_slide(slides_service, drive_service, presentation_id, slide_id, image_path)
-    
-    # Add chart if specified
-    if 'chart' in slide_data:
-        chart_data = slide_data['chart']
-        chart_type = chart_data['type']
-        categories = chart_data['categories']
-        data = chart_data['data']
-        chart_image_path = f"chart_{slide_id}.png"
-        if generate_chart_image(chart_type, categories, data, chart_image_path):
-            # Upload chart image to Google Drive
-            file_metadata = {'name': os.path.basename(chart_image_path)}
-            media = MediaFileUpload(chart_image_path, mimetype='image/png')
-            uploaded_file = drive_service.files().create(
-                body=file_metadata,
-                media_body=media,
-                fields='id'
-            ).execute()
-            file_id = uploaded_file.get('id')
-            # Set permissions
-            permission = {'type': 'anyone', 'role': 'reader'}
-            drive_service.permissions().create(fileId=file_id, body=permission).execute()
-            # Add image to slide
-            image_url = f"https://drive.google.com/uc?id={file_id}"
-            create_image_request = {
-                "createImage": {
-                    "url": image_url,
-                    "elementProperties": {
-                        "pageObjectId": slide_id,
-                        "size": {
-                            "width": {"magnitude": 400, "unit": "PT"},
-                            "height": {"magnitude": 300, "unit": "PT"}
+    # Add visual elements for content slides
+    if layout == "TITLE_AND_BODY" and 'visual' in slide_data:
+        visual = slide_data['visual']
+        if 'visual' in slide_data and slide_data['visual'] is not None:
+            visual = slide_data['visual']
+            if visual['type'] == "image":
+                # Handle image logic (e.g., download and upload an image)
+                image_bytes = search_and_download_unsplash_image(visual['description'])
+                if image_bytes:
+                    upload_image_bytes_to_slide(
+                        slides_service, drive_service, presentation_id, slide_id,
+                        image_bytes, f"image_{slide_id}.jpg",
+                        translateX=50, translateY=280, width=600, height=120
+                    )
+            elif visual['type'] == "chart":
+                # Handle chart logic
+                chart_bytes = generate_chart_image(
+                    visual['chart_type'], visual['categories'], visual['data']
+                )
+                if chart_bytes:
+                    upload_image_bytes_to_slide(
+                        slides_service, drive_service, presentation_id, slide_id,
+                        chart_bytes, f"chart_{slide_id}.png",
+                        translateX=50, translateY=280, width=600, height=120
+                    )
+            elif visual['type'] == "table":
+                # Handle table logic
+                table_data = visual
+                rows = table_data['rows']
+                cols = table_data['cols']
+                table_request = {
+                    "createTable": {
+                        "elementProperties": {
+                            "pageObjectId": slide_id,
+                            "size": {
+                                "width": {"magnitude": 600, "unit": "PT"},
+                                "height": {"magnitude": 120, "unit": "PT"}
+                            },
+                            "transform": {
+                                "scaleX": 1,
+                                "scaleY": 1,
+                                "translateX": 50,
+                                "translateY": 280,
+                                "unit": "PT"
+                            }
                         },
-                        "transform": {
-                            "scaleX": 1,
-                            "scaleY": 1,
-                            "translateX": 50,
-                            "translateY": 100,
-                            "unit": "PT"
-                        }
+                        "rows": rows,
+                        "columns": cols
                     }
                 }
-            }
-            slides_service.presentations().batchUpdate(
-                presentationId=presentation_id,
-                body={"requests": [create_image_request]}
-            ).execute()
-            # Clean up local file
-            # os.remove(chart_image_path)
-    
-    # Add table if specified
-    if 'table' in slide_data:
-        table_data = slide_data['table']
-        rows = table_data['rows']
-        cols = table_data['cols']
-        table_request = {
-            "createTable": {
-                "elementProperties": {
-                    "pageObjectId": slide_id,
-                    "size": {
-                        "width": {"magnitude": 400, "unit": "PT"},
-                        "height": {"magnitude": 200, "unit": "PT"}
-                    },
-                    "transform": {
-                        "scaleX": 1,
-                        "scaleY": 1,
-                        "translateX": 50,
-                        "translateY": 300,
-                        "unit": "PT"
-                    }
-                },
-                "rows": rows,
-                "columns": cols
-            }
-        }
-        response = slides_service.presentations().batchUpdate(
-            presentationId=presentation_id,
-            body={"requests": [table_request]}
-        ).execute()
-        table_id = response['replies'][0]['createTable']['objectId']
-        
-        # Populate table cells
-        cell_requests = []
-        for i in range(rows):
-            for j in range(cols):
-                cell_requests.append({
-                    "insertText": {
-                        "objectId": table_id,
-                        "cellLocation": {"rowIndex": i, "columnIndex": j},
-                        "text": str(table_data['data'][i][j])
-                    }
-                })
-        if cell_requests:
-            slides_service.presentations().batchUpdate(
-                presentationId=presentation_id,
-                body={"requests": cell_requests}
-            ).execute()
+                response = slides_service.presentations().batchUpdate(
+                    presentationId=presentation_id,
+                    body={"requests": [table_request]}
+                ).execute()
+                table_id = response['replies'][0]['createTable']['objectId']
+                
+                cell_requests = []
+                for i in range(rows):
+                    for j in range(cols):
+                        cell_requests.append({
+                            "insertText": {
+                                "objectId": table_id,
+                                "cellLocation": {"rowIndex": i, "columnIndex": j},
+                                "text": str(table_data['data'][i][j])
+                            }
+                        })
+                if cell_requests:
+                    slides_service.presentations().batchUpdate(
+                        presentationId=presentation_id,
+                        body={"requests": cell_requests}
+                    ).execute()
     
     return slide_id
 
@@ -402,24 +311,46 @@ def create_presentation(slides_service, title):
 def generate_presentation_content(topic):
     """Generate slide content using LLaMA"""
     prompt = f"""Create a structured PowerPoint presentation outline on the topic: {topic}. 
-    Provide 5-6 slides with detailed content. For each slide, include a title, bullet points, and optionally:
-    - An image description for relevant visuals.
-    - A chart (specify type: bar, pie, line; categories; and data series) if the slide benefits from data visualization.
-    - A table (specify rows, columns, and cell contents) if the slide needs to display structured data.
+    The presentation should include a title slide followed by 4-5 content slides.
+    For the title slide, provide the presentation title and a subtitle (e.g., "Presented by [Your Name]").
+    For each content slide, include a title, up to 3 bullet points, and optionally one visual element: either an image, a chart, or a table.
+    - For an image, provide a descriptive image search query under "description".
+    - For a chart, specify the type (bar, pie, line) under "chart_type", categories, and data series.
+    - For a table, specify the number of rows and columns, and the cell contents under "data".
     Respond in the following JSON format:
     {{
-        "title": "Presentation Title",
         "slides": [
             {{
+                "type": "title",
+                "title": "Presentation Title",
+                "subtitle": "Presentation Subtitle"
+            }},
+            {{
+                "type": "content",
                 "title": "Slide Title",
                 "content": ["Bullet point 1", "Bullet point 2", "Bullet point 3"],
-                "image_description": "Descriptive image search query",
-                "chart": {{
-                    "type": "bar",
+                "visual": {{
+                    "type": "image",
+                    "description": "Descriptive image search query"
+                }}
+            }},
+            {{
+                "type": "content",
+                "title": "Slide Title",
+                "content": ["Bullet point 1", "Bullet point 2"],
+                "visual": {{
+                    "type": "chart",
+                    "chart_type": "bar",
                     "categories": ["Category1", "Category2", "Category3"],
                     "data": [10, 20, 30]
-                }},
-                "table": {{
+                }}
+            }},
+            {{
+                "type": "content",
+                "title": "Slide Title",
+                "content": ["Bullet point 1"],
+                "visual": {{
+                    "type": "table",
                     "rows": 3,
                     "cols": 2,
                     "data": [["Cell1", "Cell2"], ["Cell3", "Cell4"], ["Cell5", "Cell6"]]
@@ -427,14 +358,12 @@ def generate_presentation_content(topic):
             }}
         ]
     }}
-    Ensure that not every slide has a chart or table; use them only where appropriate.
+    Ensure that each content slide has at most one visual element (image, chart, or table).
     """
     
     response = ollama.chat(model="llama3.2:3b", messages=[{"role": "user", "content": prompt}])
-
     if 'message' in response:
         return response['message']['content']
-
     return "Error generating content."
 
 def main():
@@ -455,28 +384,28 @@ def main():
         json_match = re.search(r'\{.*\}', presentation_data, re.DOTALL)
         if json_match:
             slides_data = json.loads(json_match.group(0))
+            print(slides_data)
         else:
             raise ValueError("No JSON found in the response")
     except (json.JSONDecodeError, ValueError) as e:
         print(f"Error parsing JSON: {e}")
         print("Using fallback presentation data")
         slides_data = {
-            "title": topic,
-            "slides": [{
-                "title": "Introduction",
-                "content": ["Overview of the topic", "Key points", "Importance"],
-                "image_description": f"Introduction to {topic}"
-            }]
+            "slides": [
+                {"type": "title", "title": topic, "subtitle": "Presented by User"},
+                {"type": "content", "title": "Introduction", "content": ["Overview"], "visual": {"type": "image", "description": topic}}
+            ]
         }
 
     # Create the presentation
     print("Creating Google Slides presentation...")
-    presentation_id = create_presentation(slides_service, slides_data.get('title', topic))
+    presentation_id = create_presentation(slides_service, slides_data['slides'][0]['title'] if slides_data['slides'] else topic)
 
     # Add slides
     for slide_info in slides_data.get('slides', []):
-        add_slide(slides_service, drive_service, presentation_id, slide_info)
-        time.sleep(1)  # Prevent potential API rate limits
+        layout = "TITLE" if slide_info.get('type') == "title" else "TITLE_AND_BODY"
+        add_slide(slides_service, drive_service, presentation_id, slide_info, layout=layout)
+        time.sleep(1)  # Prevent API rate limits
 
     print(f"Presentation created successfully! View it here: https://docs.google.com/presentation/d/{presentation_id}/edit")
 
